@@ -147,6 +147,17 @@
         body[data-ui-theme="neon"] #stockList > div[id^="card_"] { box-shadow: 0 7px 22px rgba(34,211,238,.06); }
 
         .save-pill { transition: color 160ms ease, background-color 160ms ease, border-color 160ms ease, transform 160ms ease; }
+        .field-undo-btn {
+            min-width: 22px; height: 22px; padding: 0 5px; border-radius: 6px;
+            display: inline-flex; align-items: center; justify-content: center;
+            font-size: 12px; line-height: 1; border: 1px solid transparent;
+            transition: transform 150ms ease, background-color 160ms ease, color 160ms ease, border-color 160ms ease, opacity 160ms ease;
+        }
+        .field-undo-btn:disabled { opacity: .24; cursor: default; transform: none !important; }
+        .field-undo-btn.undo-ready { background-color: #eef2ff; color: #4f46e5; border-color: #c7d2fe; }
+        .dark .field-undo-btn.undo-ready { background-color: rgba(49,46,129,.32); color: #c7d2fe; border-color: #4338ca; }
+        .field-undo-btn.undo-done { animation: undoDonePop 340ms cubic-bezier(.16,1,.3,1); }
+        @keyframes undoDonePop { 0% { transform: scale(.88) rotate(-10deg); } 65% { transform: scale(1.12) rotate(4deg); } 100% { transform: scale(1) rotate(0); } }
         .save-dot { width: 6px; height: 6px; border-radius: 999px; display: inline-block; }
         .save-saving .save-dot { animation: savePulse 700ms ease-in-out infinite alternate; }
         @keyframes savePulse { from { opacity: .35; transform: scale(.8); } to { opacity: 1; transform: scale(1.15); } }
@@ -334,7 +345,7 @@
                     </div>
                 </div>
             </div>
-            <div class="text-[10px] text-center text-slate-400 border-t dark:border-slate-700 pt-3">OH STOCK OJ016 v2.32</div>
+            <div class="text-[10px] text-center text-slate-400 border-t dark:border-slate-700 pt-3">OH STOCK OJ016 v2.34</div>
         </div>
     </div>
 
@@ -448,6 +459,10 @@
         let currentUITheme = localStorage.getItem('oh_stock_ui_theme') || (localStorage.getItem('oh_stock_theme') === 'dark' ? 'dark' : 'minimal');
         let lastLightTheme = localStorage.getItem('oh_stock_last_light_theme') || (currentUITheme === 'dark' ? 'minimal' : currentUITheme);
         let modeSwitchTimer = null;
+        const fieldUndoHistories = new Map();
+        const FIELD_UNDO_LIMIT = 10;
+        const undoInProgressKeys = new Set();
+        const undoVisualTimers = new Map();
 
         const LOADING_GIFS = {
             sync: 'data:image/gif;base64,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',
@@ -492,6 +507,151 @@
         window.toggleDarkMode = function() {
             if (currentUITheme === 'dark') applyUITheme(lastLightTheme || 'minimal');
             else { lastLightTheme = currentUITheme; applyUITheme('dark'); }
+        };
+
+        function valuesEqual(a, b) {
+            return String(a ?? '') === String(b ?? '');
+        }
+
+        function fieldLabel(field) {
+            return ({ full: 'จำนวนเต็ม', frac1: 'เศษ 1', frac2: 'เศษ 2' })[field] || field;
+        }
+
+        function fieldUndoKey(mode, itemId, field) {
+            return `${mode}:${String(itemId ?? '')}:${field}`;
+        }
+
+        function getFieldUndoHistory(mode, itemId, field) {
+            const key = fieldUndoKey(mode, itemId, field);
+            if (!fieldUndoHistories.has(key)) fieldUndoHistories.set(key, []);
+            return fieldUndoHistories.get(key);
+        }
+
+        function updateFieldUndoButton(idx, field) {
+            const item = stockItems[idx];
+            const btn = document.getElementById(`undo_${idx}_${field}`);
+            if (!item || !btn) return;
+            const key = fieldUndoKey(currentMode, item.id, field);
+            const history = fieldUndoHistories.get(key) || [];
+            const action = history[history.length - 1];
+            const available = !!action && !undoInProgressKeys.has(key);
+            btn.disabled = !available;
+            btn.classList.toggle('undo-ready', available);
+            btn.title = available
+                ? `ย้อน ${fieldLabel(field)} กลับเป็น ${String(action.previousValue ?? '') || 'ค่าว่าง'}`
+                : `ยังไม่มีประวัติของ ${fieldLabel(field)} ในเครื่องนี้`;
+        }
+
+        function updateFieldUndoButtonsForItem(idx) {
+            ['full','frac1','frac2'].forEach(field => updateFieldUndoButton(idx, field));
+        }
+
+        function updateAllFieldUndoButtons() {
+            stockItems.forEach((_, idx) => updateFieldUndoButtonsForItem(idx));
+        }
+
+        function clearUndoHistory() {
+            fieldUndoHistories.clear();
+            updateAllFieldUndoButtons();
+        }
+
+        function pushFieldUndoAction({ mode, idx, itemId, itemName = '', field, previousValue, nextValue }) {
+            if (valuesEqual(previousValue, nextValue)) return;
+            const key = fieldUndoKey(mode, itemId, field);
+            if (undoInProgressKeys.has(key)) return;
+            const history = getFieldUndoHistory(mode, itemId, field);
+            history.push({ mode, idx, itemId: String(itemId ?? ''), itemName, field, previousValue, nextValue });
+            if (history.length > FIELD_UNDO_LIMIT) history.shift();
+            if (mode === currentMode) updateFieldUndoButton(idx, field);
+        }
+
+        function pushBulkFieldUndoActions(mode, idx, item, previousToday, nextToday) {
+            ['full','frac1','frac2'].forEach(field => {
+                pushFieldUndoAction({
+                    mode, idx, itemId: String(item.id ?? ''), itemName: item.name || '', field,
+                    previousValue: previousToday?.[field], nextValue: nextToday?.[field]
+                });
+            });
+        }
+
+        function flashFieldUndoSuccess(idx, field) {
+            const btn = document.getElementById(`undo_${idx}_${field}`);
+            if (!btn) return;
+            const key = `${idx}:${field}`;
+            btn.classList.remove('undo-done');
+            void btn.offsetWidth;
+            btn.classList.add('undo-done');
+            btn.textContent = '✓';
+            const oldTimer = undoVisualTimers.get(key);
+            if (oldTimer) clearTimeout(oldTimer);
+            const timer = setTimeout(() => {
+                const currentBtn = document.getElementById(`undo_${idx}_${field}`);
+                if (currentBtn) {
+                    currentBtn.textContent = '↶';
+                    currentBtn.classList.remove('undo-done');
+                    updateFieldUndoButton(idx, field);
+                }
+                undoVisualTimers.delete(key);
+            }, 750);
+            undoVisualTimers.set(key, timer);
+        }
+
+        window.undoField = async function(idx, field) {
+            const item = stockItems[idx];
+            if (!item || !item.today) return;
+            const itemId = String(item.id ?? '');
+            const key = fieldUndoKey(currentMode, itemId, field);
+            if (undoInProgressKeys.has(key)) return;
+
+            const history = fieldUndoHistories.get(key) || [];
+            const action = history[history.length - 1];
+            if (!action) { updateFieldUndoButton(idx, field); return; }
+
+            if (action.mode !== currentMode || action.itemId !== itemId) {
+                fieldUndoHistories.delete(key);
+                updateFieldUndoButton(idx, field);
+                showCuteModal({ icon: '❌', title: 'ย้อนกลับไม่ได้', message: 'รายการสินค้าเปลี่ยนไปแล้ว ประวัติของช่องนี้ถูกล้างเพื่อความปลอดภัย' });
+                return;
+            }
+
+            if (!valuesEqual(item.today?.[field], action.nextValue)) {
+                history.pop();
+                if (!history.length) fieldUndoHistories.delete(key);
+                updateFieldUndoButton(idx, field);
+                showCuteModal({ icon: '❌', title: 'ไม่ทับข้อมูลอีกเครื่อง', message: `ช่อง ${fieldLabel(field)} ของสินค้านี้ถูกแก้ใหม่แล้ว ระบบจึงไม่ Undo ทับค่าปัจจุบัน` });
+                return;
+            }
+
+            undoInProgressKeys.add(key);
+            updateFieldUndoButton(idx, field);
+            const currentValue = item.today[field];
+            beginSave();
+            try {
+                item.today[field] = action.previousValue;
+                const input = document.getElementById(`input_${idx}_${field}`);
+                if (input) input.value = action.previousValue ?? '';
+                updateCardUI(idx);
+
+                const updates = {};
+                updates[`stock_${currentMode}/${idx}/today/${field}`] = action.previousValue;
+                await update(ref(db), updates);
+
+                history.pop();
+                if (!history.length) fieldUndoHistories.delete(key);
+                finishSave(true);
+                flashFieldUndoSuccess(idx, field);
+            } catch (error) {
+                console.error('Field undo save error:', error);
+                item.today[field] = currentValue;
+                const input = document.getElementById(`input_${idx}_${field}`);
+                if (input) input.value = currentValue ?? '';
+                updateCardUI(idx);
+                finishSave(false);
+                showSaveError(`Undo ${fieldLabel(field)} ไม่สำเร็จ ข้อมูลปัจจุบันยังคงเดิม`);
+            } finally {
+                undoInProgressKeys.delete(key);
+                updateFieldUndoButton(idx, field);
+            }
         };
 
         function applyQuickMode() {
@@ -993,6 +1153,7 @@
                     };
                 });
                 await set(ref(db, `stock_${modeAtStart}`), formattedData);
+                if (currentMode === modeAtStart) clearUndoHistory();
                 closeCuteModal();
                 if (!isInitial) showCuteModal({ icon: '🎉', title: 'สำเร็จ', message: 'ดึงข้อมูลจาก Google Sheets และบันทึกลงระบบเรียบร้อยแล้วครับ' });
             } catch (err) {
@@ -1017,6 +1178,7 @@
 
             modeSwitchTimer = setTimeout(() => {
                 currentMode = mode;
+                clearUndoHistory();
                 selectedCategory = 'ทั้งหมด';
                 progressInitialized = false;
                 lastCompletedCount = 0;
@@ -1175,13 +1337,19 @@
                     <div class="input-group-wrapper ${isZeroAll ? 'sold-out' : ''}">
                         <div class="grid ${gridClass} gap-2 mb-2">
                             <div>
-                                <span class="text-[10px] text-slate-500 dark:text-slate-400 block mb-1">จำนวนเต็ม</span>
+                                <div class="flex justify-between items-center mb-1">
+                                    <span class="text-[10px] text-slate-500 dark:text-slate-400">จำนวนเต็ม</span>
+                                    <button id="undo_${originalIdx}_full" onclick="undoField(${originalIdx}, 'full')" type="button" aria-label="ย้อนกลับจำนวนเต็ม" class="field-undo-btn" disabled>↶</button>
+                                </div>
                                 <input type="number" id="input_${originalIdx}_full" value="${escapeAttribute(item.today?.full ?? '')}" onblur="updateFirebaseInput(${originalIdx}, 'full', this.value)" onkeydown="handleInputKeydown(event, ${originalIdx}, 'full')" class="${inputStyle}" placeholder="0">
                             </div>
                             <div class="relative">
                                 <div class="flex justify-between items-center mb-1">
                                     <span class="text-[10px] text-slate-500 dark:text-slate-400">${isNeedTare ? 'เศษปกติ' : 'เศษ 1'}</span>
-                                    <button onclick="openCalculator(${originalIdx}, 'frac1')" class="quick-secondary text-[11px] hover:scale-110 active:scale-95 transition text-slate-400 hover:text-slate-600">🧮</button>
+                                    <div class="flex items-center gap-1">
+                                        <button id="undo_${originalIdx}_frac1" onclick="undoField(${originalIdx}, 'frac1')" type="button" aria-label="ย้อนกลับเศษ 1" class="field-undo-btn" disabled>↶</button>
+                                        <button onclick="openCalculator(${originalIdx}, 'frac1')" class="quick-secondary text-[11px] hover:scale-110 active:scale-95 transition text-slate-400 hover:text-slate-600">🧮</button>
+                                    </div>
                                 </div>
                                 <input type="number" id="input_${originalIdx}_frac1" value="${escapeAttribute(item.today?.frac1 ?? '')}" onblur="updateFirebaseInput(${originalIdx}, 'frac1', this.value)" onkeydown="handleInputKeydown(event, ${originalIdx}, 'frac1')" class="${inputStyle}" placeholder="0">
                             </div>
@@ -1189,7 +1357,10 @@
                             <div class="relative">
                                 <div class="flex justify-between items-center mb-1">
                                     <span class="text-[10px] text-slate-500 dark:text-slate-400">เศษ 2 (หักกระปุก)</span>
-                                    <button onclick="openCalculator(${originalIdx}, 'frac2')" class="quick-secondary text-[11px] hover:scale-110 active:scale-95 transition text-slate-400 hover:text-slate-600">🧮</button>
+                                    <div class="flex items-center gap-1">
+                                        <button id="undo_${originalIdx}_frac2" onclick="undoField(${originalIdx}, 'frac2')" type="button" aria-label="ย้อนกลับเศษ 2" class="field-undo-btn" disabled>↶</button>
+                                        <button onclick="openCalculator(${originalIdx}, 'frac2')" class="quick-secondary text-[11px] hover:scale-110 active:scale-95 transition text-slate-400 hover:text-slate-600">🧮</button>
+                                    </div>
                                 </div>
                                 <input type="number" id="input_${originalIdx}_frac2" value="${escapeAttribute(item.today?.frac2 ?? '')}" onblur="updateFirebaseInput(${originalIdx}, 'frac2', this.value)" onkeydown="handleInputKeydown(event, ${originalIdx}, 'frac2')" class="${inputStyle}" placeholder="0">
                             </div>
@@ -1208,6 +1379,7 @@
                     </div>
                 `;
                 container.appendChild(card);
+                updateFieldUndoButtonsForItem(originalIdx);
             });
         };
 
@@ -1230,6 +1402,7 @@
             const modeAtStart = currentMode;
             const itemIdAtStart = String(item.id ?? '');
             const previousValue = item.today[field];
+            if (valuesEqual(previousValue, val)) return true;
             const saveKey = `${modeAtStart}:${idx}:${field}`;
             const saveVersion = (saveVersions.get(saveKey) || 0) + 1;
             saveVersions.set(saveKey, saveVersion);
@@ -1241,6 +1414,7 @@
                 const updates = {};
                 updates[`stock_${modeAtStart}/${idx}/today/${field}`] = val;
                 await update(ref(db), updates);
+                pushFieldUndoAction({ mode: modeAtStart, idx, itemId: itemIdAtStart, itemName: item.name || '', field, previousValue, nextValue: val });
                 finishSave(true);
                 return true;
             } catch (error) {
@@ -1333,6 +1507,7 @@
                 const updates = {};
                 updates[`stock_${modeAtStart}/${idx}/today`] = nextToday;
                 await update(ref(db), updates);
+                pushBulkFieldUndoActions(modeAtStart, idx, item, previousToday, nextToday);
                 finishSave(true);
             } catch (error) {
                 console.error('Use yesterday save error:', error);
@@ -1359,6 +1534,7 @@
                 const updates = {};
                 updates[`stock_${modeAtStart}/${idx}/today`] = nextToday;
                 await update(ref(db), updates);
+                pushBulkFieldUndoActions(modeAtStart, idx, item, previousToday, nextToday);
                 finishSave(true);
             } catch (error) {
                 console.error('Set zero save error:', error);
@@ -1389,6 +1565,7 @@
                     beginSave();
                     try {
                         await set(ref(db, `stock_${modeAtStart}`), newItems);
+                        clearUndoHistory();
                         finishSave(true);
                         localStorage.removeItem(sessionStorageKey());
                         if (currentMode === modeAtStart) {
@@ -1459,6 +1636,7 @@
         initTheme();
         applyQuickMode();
         setSaveIndicator('idle');
+        updateAllFieldUndoButtons();
         updateDailyStats();
         setInterval(updateDailyStats, 30000);
         listenToFirebase();
