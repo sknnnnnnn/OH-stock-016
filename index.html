@@ -1584,40 +1584,68 @@
             });
         };
 
+        // Submission is deliberately not retried automatically: a lost response can follow a successful write.
+        let sheetsSubmissionBusy = false;
         window.submitToGoogleSheets = async function() {
+            if (sheetsSubmissionBusy) return;
             showCuteModal({
-                icon: '📤', title: 'ยืนยันการส่งข้อมูล', message: 'ต้องการส่งผลการนับทั้งหมดเข้า Google Sheets ใช่ไหมครับ?', showCancel: true,
+                icon: '📤', title: 'ยืนยันการส่งข้อมูล',
+                message: 'ส่งผลการนับเข้า Google Sheets หรือไม่? หากคำตอบจากระบบหาย โปรดตรวจชีตก่อนส่งซ้ำ',
+                showCancel: true,
                 onConfirm: async () => {
+                    if (sheetsSubmissionBusy) return;
+                    sheetsSubmissionBusy = true;
                     const modeAtStart = currentMode;
-                    showLoadingModal({ title: 'กำลังส่งข้อมูล', message: 'กำลังบันทึกข้อมูลลง Google Sheets...', type: 'submit' });
+                    const snapshot = stockItems.map(item => ({
+                        ...item,
+                        today: { ...(item.today || {}) },
+                        yst: { ...(item.yst || {}) }
+                    }));
+                    const processedItems = snapshot.map(item => {
+                        const f1 = parseFloat(item.today?.frac1) || 0;
+                        const f2 = parseFloat(item.today?.frac2) || 0;
+                        const finalF2 = Math.max(0, f2 - (item.tare || 0));
+                        return { ...item, today: { ...item.today, frac_normal: f1, frac_tare_net: finalF2, frac: f1 + finalF2 } };
+                    });
+                    // Preserve a copy before attempting the network request. Never overwrite the previous failed snapshot.
+                    const backupKey = 'oh_stock_pending_sheet_submit_' + modeAtStart;
                     try {
-                        const processedItems = stockItems.map(item => {
-                            const f1 = parseFloat(item.today?.frac1) || 0;
-                            const f2 = parseFloat(item.today?.frac2) || 0;
-                            const finalF2 = Math.max(0, f2 - (item.tare || 0));
-                            return {
-                                ...item,
-                                today: { ...item.today, frac_normal: f1, frac_tare_net: finalF2, frac: f1 + finalF2 }
-                            };
-                        });
-
-                        const response = await fetch(WEB_APP_URL, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                            body: JSON.stringify({ mode: modeAtStart, items: processedItems })
-                        });
-                        if (!response.ok) throw new Error(`Sheets HTTP ${response.status}`);
-                        const responseText = await response.text();
-                        if (responseText.trim()) {
-                            let result = null;
-                            try { result = JSON.parse(responseText); } catch (_) { /* Non-JSON success body is allowed. */ }
-                            if (result && result.success === false) throw new Error(result.message || 'Apps Script returned success=false');
-                        }
-                        showCuteModal({ icon: '🎉', title: 'สำเร็จ', message: 'Google Sheets ตอบรับการส่งข้อมูลเรียบร้อยแล้วครับ' });
-                    } catch (error) {
-                        console.error('Submit to Sheets error:', error);
-                        showCuteModal({ icon: '❌', title: 'ส่งข้อมูลไม่สำเร็จ', message: 'Google Sheets ยังไม่ยืนยันการบันทึก กรุณาลองอีกครั้งหรือใช้ฟังก์ชันสำรองข้อมูล' });
+                        if (!localStorage.getItem(backupKey)) localStorage.setItem(backupKey, JSON.stringify({
+                            savedAt: new Date().toISOString(), mode: modeAtStart, items: processedItems
+                        }));
+                    } catch (backupError) {
+                        console.warn('Could not store Sheets submission backup', backupError);
                     }
+                    showLoadingModal({ title: 'กำลังส่งข้อมูล', message: 'กำลังรอ Google Sheets ยืนยันการบันทึก...', type: 'submit' });
+                    try {
+                        const controller = new AbortController();
+                        const timeout = setTimeout(() => controller.abort(), 30000);
+                        let response;
+                        try {
+                            response = await fetch(WEB_APP_URL, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                                body: JSON.stringify({ mode: modeAtStart, items: processedItems }),
+                                signal: controller.signal
+                            });
+                        } finally { clearTimeout(timeout); }
+                        if (!response.ok) throw new Error('Sheets HTTP ' + response.status);
+                        const responseText = await response.text();
+                        let result;
+                        try { result = JSON.parse(responseText); }
+                        catch (_) { throw new Error('Apps Script did not return valid JSON confirmation'); }
+                        if (!result || (result.success !== true && result.status !== 'success')) {
+                            throw new Error(result?.message || 'Apps Script did not confirm success');
+                        }
+                        try { localStorage.removeItem(backupKey); } catch (_) {}
+                        showCuteModal({ icon: '🎉', title: 'ส่งข้อมูลสำเร็จ',
+                            message: 'Google Sheets ยืนยันการบันทึกแล้ว กรุณาตรวจยอดในชีตให้ตรงกับผลนับ' });
+                    } catch (error) {
+                        console.error('Submit to Sheets failed or unconfirmed:', error);
+                        showCuteModal({ icon: '❌', title: 'ยังยืนยันการส่งไม่ได้',
+                            message: 'ผลนับยังอยู่ในแอป อย่าเพิ่งส่งซ้ำ เพราะชีตอาจบันทึกแล้ว กรุณาตรวจข้อมูลในชีตก่อน กดตกลงเพื่อเปิดหน้าสำรองข้อมูล',
+                            onConfirm: () => openBackupModal() });
+                    } finally { sheetsSubmissionBusy = false; }
                 }
             });
         };
