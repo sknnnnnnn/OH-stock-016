@@ -1,0 +1,4 @@
+# Private browser evidence and owner-specific staging configuration.
+evidence/private-*
+staging/config.local.json
+staging/dist/

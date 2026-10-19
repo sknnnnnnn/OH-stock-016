@@ -1,0 +1,238 @@
+TAP version 13
+# Subtest: actual submit handler confirms synthetic snapshot without altering Firebase
+ok 1 - actual submit handler confirms synthetic snapshot without altering Firebase
+  ---
+  duration_ms: 11.980376
+  type: 'test'
+  ...
+# Subtest: submit and mode switch wait for pending Firebase saves
+ok 2 - submit and mode switch wait for pending Firebase saves
+  ---
+  duration_ms: 1.614335
+  type: 'test'
+  ...
+# Subtest: field handler writes only today child and preserves backup
+ok 3 - field handler writes only today child and preserves backup
+  ---
+  duration_ms: 1.711232
+  type: 'test'
+  ...
+# Subtest: negative field edits do not mutate values or write Firebase
+ok 4 - negative field edits do not mutate values or write Firebase
+  ---
+  duration_ms: 1.233388
+  type: 'test'
+  ...
+# Subtest: catalog transaction preserves a concurrent central edit after baseline read
+ok 5 - catalog transaction preserves a concurrent central edit after baseline read
+  ---
+  duration_ms: 2.334897
+  type: 'test'
+  ...
+# Subtest: new-round transaction backs up latest values before clearing only selected mode
+ok 6 - new-round transaction backs up latest values before clearing only selected mode
+  ---
+  duration_ms: 1.559883
+  type: 'test'
+  ...
+# Subtest: new round aborts if backed-up values change before transaction
+ok 7 - new round aborts if backed-up values change before transaction
+  ---
+  duration_ms: 1.511429
+  type: 'test'
+  ...
+# Subtest: unconfirmed submission blocks a new counting round
+ok 8 - unconfirmed submission blocks a new counting round
+  ---
+  duration_ms: 1.203673
+  type: 'test'
+  ...
+# Subtest: backend daily writes/readbacks and same submissionId causes no extra write
+ok 9 - backend daily writes/readbacks and same submissionId causes no extra write
+  ---
+  duration_ms: 4.071086
+  type: 'test'
+  ...
+# Subtest: backend weekly writes/readbacks and same submissionId causes no extra write
+ok 10 - backend weekly writes/readbacks and same submissionId causes no extra write
+  ---
+  duration_ms: 1.134779
+  type: 'test'
+  ...
+# Subtest: reused ID with different counts rejects without touching sheet
+ok 11 - reused ID with different counts rejects without touching sheet
+  ---
+  duration_ms: 1.033676
+  type: 'test'
+  ...
+# Subtest: server saved rows but receipt failed: GET verifies rows and no second POST write
+ok 12 - server saved rows but receipt failed: GET verifies rows and no second POST write
+  ---
+  duration_ms: 1.073295
+  type: 'test'
+  ...
+# Subtest: write denial persists prepared state and blocks all later overwrites
+ok 13 - write denial persists prepared state and blocks all later overwrites
+  ---
+  duration_ms: 0.815044
+  type: 'test'
+  ...
+# Subtest: corrupted count cells cannot be confirmed from prepared receipt
+ok 14 - corrupted count cells cannot be confirmed from prepared receipt
+  ---
+  duration_ms: 1.05639
+  type: 'test'
+  ...
+# Subtest: invalid numbers, empty and duplicate IDs do not write
+ok 15 - invalid numbers, empty and duplicate IDs do not write
+  ---
+  duration_ms: 2.358252
+  type: 'test'
+  ...
+# Subtest: unknown ID returns not_found, old confirmed receipts remain compatible
+ok 16 - unknown ID returns not_found, old confirmed receipts remain compatible
+  ---
+  duration_ms: 0.64742
+  type: 'test'
+  ...
+# Subtest: reproduce supplied backend gap: sheet saved but receipt storage failed => not_found
+ok 17 - reproduce supplied backend gap: sheet saved but receipt storage failed => not_found
+  ---
+  duration_ms: 1.953158
+  type: 'test'
+  ...
+# Subtest: tare and fractional values preserve source and Unicode payload hash
+ok 18 - tare and fractional values preserve source and Unicode payload hash
+  ---
+  duration_ms: 8.935114
+  type: 'test'
+  ...
+# Subtest: blank/zero and tare floor retain original numeric convention
+ok 19 - blank/zero and tare floor retain original numeric convention
+  ---
+  duration_ms: 0.307466
+  type: 'test'
+  ...
+# Subtest: reject malformed/negative numbers, empty and duplicate IDs before sending
+ok 20 - reject malformed/negative numbers, empty and duplicate IDs before sending
+  ---
+  duration_ms: 0.559518
+  type: 'test'
+  ...
+# Subtest: daily confirms exact ID/hash/count and retains receipt backup
+ok 21 - daily confirms exact ID/hash/count and retains receipt backup
+  ---
+  duration_ms: 4.762784
+  type: 'test'
+  ...
+# Subtest: weekly confirms exact ID/hash/count and retains receipt backup
+ok 22 - weekly confirms exact ID/hash/count and retains receipt backup
+  ---
+  duration_ms: 1.019785
+  type: 'test'
+  ...
+# Subtest: same pending ID checks GET only after lost server response
+ok 23 - same pending ID checks GET only after lost server response
+  ---
+  duration_ms: 1.780707
+  type: 'test'
+  ...
+# Subtest: lost response then disconnected status survives reload and verifies without POST replay
+ok 24 - lost response then disconnected status survives reload and verifies without POST replay
+  ---
+  duration_ms: 1.521394
+  type: 'test'
+  ...
+# Subtest: offline before send keeps prepared snapshot without POST and allows later send once
+ok 25 - offline before send keeps prepared snapshot without POST and allows later send once
+  ---
+  duration_ms: 1.138354
+  type: 'test'
+  ...
+# Subtest: backend rejection keeps snapshot and next click does not repeat POST
+ok 26 - backend rejection keeps snapshot and next click does not repeat POST
+  ---
+  duration_ms: 1.071583
+  type: 'test'
+  ...
+# Subtest: timeout bounds POST and status body reads
+ok 27 - timeout bounds POST and status body reads
+  ---
+  duration_ms: 20.819384
+  type: 'test'
+  ...
+# Subtest: bodyTimeout bounds POST and status body reads
+ok 28 - bodyTimeout bounds POST and status body reads
+  ---
+  duration_ms: 20.412907
+  type: 'test'
+  ...
+# Subtest: wrong confirmation hash never claims success
+ok 29 - wrong confirmation hash never claims success
+  ---
+  duration_ms: 0.956599
+  type: 'test'
+  ...
+# Subtest: legacy pending journal is checked first even when current snapshot changed
+ok 30 - legacy pending journal is checked first even when current snapshot changed
+  ---
+  duration_ms: 1.463357
+  type: 'test'
+  ...
+# Subtest: storage full blocks all network writes
+ok 31 - storage full blocks all network writes
+  ---
+  duration_ms: 0.497173
+  type: 'test'
+  ...
+# Subtest: simultaneous clicks produce one POST
+ok 32 - simultaneous clicks produce one POST
+  ---
+  duration_ms: 0.787122
+  type: 'test'
+  ...
+# Subtest: sparse Firebase keys retain their true child key
+ok 33 - sparse Firebase keys retain their true child key
+  ---
+  duration_ms: 0.375258
+  type: 'test'
+  ...
+# Subtest: catalog merge preserves latest central counts, omitted products, yesterday and unknown fields
+ok 34 - catalog merge preserves latest central counts, omitted products, yesterday and unknown fields
+  ---
+  duration_ms: 0.253183
+  type: 'test'
+  ...
+# Subtest: new round preserves explicit zero and falls back only for missing values
+ok 35 - new round preserves explicit zero and falls back only for missing values
+  ---
+  duration_ms: 0.160463
+  type: 'test'
+  ...
+# Subtest: repeated submit of confirmed unchanged snapshot checks old ID and never POSTs twice
+ok 36 - repeated submit of confirmed unchanged snapshot checks old ID and never POSTs twice
+  ---
+  duration_ms: 1.365408
+  type: 'test'
+  ...
+# Subtest: staging builder refuses production Firebase and production Apps Script URLs
+ok 37 - staging builder refuses production Firebase and production Apps Script URLs
+  ---
+  duration_ms: 77.040647
+  type: 'test'
+  ...
+# Subtest: staging build removes production service endpoints from served app
+ok 38 - staging build removes production service endpoints from served app
+  ---
+  duration_ms: 37.273315
+  type: 'test'
+  ...
+1..38
+# tests 38
+# suites 0
+# pass 38
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 229.804951

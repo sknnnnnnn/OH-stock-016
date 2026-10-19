@@ -1,0 +1,10 @@
+{
+  "firebase": {
+    "apiKey": "TEST_PROJECT_WEB_API_KEY",
+    "authDomain": "TEST_PROJECT.firebaseapp.com",
+    "databaseURL": "https://TEST_DATABASE.firebasedatabase.app",
+    "projectId": "TEST_PROJECT",
+    "appId": "TEST_WEB_APP_ID"
+  },
+  "sheetsWebAppUrl": "https://script.google.com/macros/s/TEST_DEPLOYMENT/exec"
+}

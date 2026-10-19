@@ -1,0 +1,8 @@
+{
+  "dateBangkok": "2026-10-19",
+  "productionWritesTested": false,
+  "firebaseReadOnly": {"daily": {"http": 200, "records": 124}, "weekly": {"http": 200, "records": 80}},
+  "appsScriptStatusReadOnly": {"http": 200, "cors": "*", "method": "GET", "response": {"status": "not_found", "mode": "countSubmissionStatus", "submissionId": "oj016-deploymenttest00001"}},
+  "browser": {"provider": "Chrome cloud browser", "exactVersion": "BLOCKED: unavailable in API", "dailyLoaded": "124/124", "weeklyLoaded": "79/80", "dailyAfterReload": "124/124", "search": "observed working", "applicationExceptionsObserved": 0, "otherLogs": ["Tailwind CDN production warning", "chrome-extension metadata errors"], "candidateQA": "BLOCKED: no HTTPS staging with separate Firebase/Sheets"},
+  "limitations": ["No browser HAR/network capture API", "No production POST", "No real test database or Sheets write", "No physical/mobile browser test"]
+}

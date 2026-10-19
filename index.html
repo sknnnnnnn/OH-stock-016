@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="oj016-build" content="sheets-confirmation-r2">
     <title>OH STOCK OJ016</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
@@ -356,6 +357,7 @@
                 <button onclick="closeBackupModal()" class="text-slate-400 hover:text-slate-600 text-sm">✕</button>
             </div>
             <p class="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">กดคัดลอกด้านล่าง แล้วนำไปวาง (Ctrl+V) ลงใน Google Sheets ข้อมูลจะถูกจัดลงคอลัมน์ให้อัตโนมัติทันที</p>
+            <button type="button" onclick="downloadCountRecovery()" class="w-full p-2 mb-2 rounded-lg border text-xs">ดาวน์โหลดสำเนา JSON พร้อม ID การส่ง</button>
             <textarea id="backupTextArea" readonly class="w-full h-44 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-2.5 text-[10px] font-mono text-slate-700 dark:text-slate-300 outline-none resize-none"></textarea>
             <div class="flex gap-2 pt-1">
                 <button onclick="copyBackupText()" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium py-2 rounded-lg shadow-xs transition active:scale-95 flex items-center justify-center gap-1.5"><span>📋</span> คัดลอกข้อความ</button>
@@ -420,9 +422,11 @@
         <div id="stockList" class="space-y-2.5"></div>
     </main>
 
+    <script src="./count-submit.js"></script>
+    <script src="./count-state.js"></script>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getDatabase, ref, onValue, set, update } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+        import { getDatabase, ref, onValue, set, update, get, runTransaction } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyDRQW8NeX4P4VjDLFrjZXx8S8XOyA47I58",
@@ -436,7 +440,7 @@
         };
 
         // ลิงก์ Web App ล่าสุดที่อัปเดตแล้ว
-        const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzwraa62HFHFyiad9c43xCwMHE8LKi6FZVT6i_v_Ta05AwsH8SXXS9rWU429fdB7p6u/exec";
+        const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwe-h24CMCM1c92oIrlh_mOaMr6NJFQ8iaMhAJ_Rr958QAe4qJjoEjj-5ERufIIQr6g/exec";
 
         const app = initializeApp(firebaseConfig);
         const db = getDatabase(app);
@@ -453,6 +457,19 @@
         const saveVersions = new Map();
         const modalCloseTimers = new Map();
         let pendingSaves = 0;
+        let countMaintenanceBusy=false;
+        const firebaseLoadedModes=new Set();
+        const countSubmit=OJCountSubmit.create({url:WEB_APP_URL,storage:localStorage,fetch:(...args)=>fetch(...args),crypto,onLine:()=>navigator.onLine!==false});
+        function countingBusy(){return countMaintenanceBusy||countSubmit.isBusy()}
+        function databaseKey(idx){const k=stockItems[idx]?.__dbKey;if(k==null)throw Error('ยังไม่ทราบลำดับข้อมูลกลาง กรุณารอโหลด Firebase');return k}
+        function saveCountBackup(mode,items,label){
+            const data={mode,savedAt:new Date().toISOString(),label,items:JSON.parse(JSON.stringify(items))},text=JSON.stringify(data);
+            if(label==='before_new_round'||label==='before_catalog_sync'){
+                localStorage.setItem('oh_stock_recovery_'+mode+'_'+crypto.randomUUID(),text);
+                localStorage.setItem('oh_stock_backup_'+label+'_'+mode,text);
+            }
+            localStorage.setItem('oh_stock_count_backup_'+mode,text);return data;
+        }
         let saveIndicatorTimer = null;
         let progressInitialized = false;
         let quickMode = localStorage.getItem('oh_stock_quick_mode') === '1';
@@ -597,6 +614,7 @@
         }
 
         window.undoField = async function(idx, field) {
+            if(countingBusy())return;
             const item = stockItems[idx];
             if (!item || !item.today) return;
             const itemId = String(item.id ?? '');
@@ -633,7 +651,7 @@
                 updateCardUI(idx);
 
                 const updates = {};
-                updates[`stock_${currentMode}/${idx}/today/${field}`] = action.previousValue;
+                updates[`stock_${currentMode}/${databaseKey(idx)}/today/${field}`] = action.previousValue;
                 await update(ref(db), updates);
 
                 history.pop();
@@ -737,7 +755,7 @@
             pendingSaves += 1;
             if (saveIndicatorTimer) clearTimeout(saveIndicatorTimer);
             setSaveIndicator('saving');
-            ensureDailySessionStarted();
+            try{ensureDailySessionStarted()}catch(e){console.warn('Session timer unavailable')}
         }
         function finishSave(ok) {
             pendingSaves = Math.max(0, pendingSaves - 1);
@@ -914,7 +932,8 @@
 
         window.openBackupModal = function() {
             let textOutput = "";
-            stockItems.forEach((item) => {
+            const backupItems=countSubmit.pending(currentMode)?.items||stockItems;
+            backupItems.forEach((item) => {
                 const fFull = item.today?.full !== "" && item.today?.full !== null ? item.today.full : 0;
                 const f1 = parseFloat(item.today?.frac1) || 0;
                 let f2 = parseFloat(item.today?.frac2) || 0;
@@ -1087,12 +1106,15 @@
                 if (generation !== listenerGeneration || modeAtListen !== currentMode) return;
                 const data = snapshot.val();
                 if (data) {
-                    stockItems = Array.isArray(data) ? data : Object.values(data);
+                    stockItems = OJCountState.rows(data);
+                    firebaseLoadedModes.add(modeAtListen);
+                    try{saveCountBackup(modeAtListen,stockItems,'firebase_snapshot')}catch(e){console.warn('Count backup unavailable')}
                 } else {
                     stockItems = [];
                     renderCategories();
                     renderStockSkeleton();
-                    fetchFromSheetsAndSyncFirebase(true);
+                    firebaseLoadedModes.delete(modeAtListen);
+                    showCuteModal({icon:'❌',title:'ยังไม่มีข้อมูลกลาง',message:'ระบบไม่สร้างหรือทับผลนับอัตโนมัติ กรุณาตรวจฐานข้อมูลก่อนซิงก์รายการสินค้า'});
                     return;
                 }
                 isSyncingFromFirebase = true;
@@ -1121,52 +1143,26 @@
                 </div>`).join('');
         }
 
-        window.fetchFromSheetsAndSyncFirebase = async function(isInitial = false) {
-            const modeAtStart = currentMode;
-            const oldItemsSnapshot = stockItems.map(item => ({ ...item, today: { ...(item.today || {}) }, yst: { ...(item.yst || {}) } }));
-            showLoadingModal({ title: 'กำลังซิงค์ข้อมูล', message: 'กำลังดึงรายการสินค้าจาก Google Sheets...', type: 'sync' });
-            renderStockSkeleton();
-            try {
-                const response = await fetch(`${WEB_APP_URL}?mode=${encodeURIComponent(modeAtStart)}`, { method: 'GET', mode: 'cors' });
-                if (!response.ok) throw new Error(`Sheets HTTP ${response.status}`);
-                const rawData = await response.json();
-                if (!Array.isArray(rawData) || rawData.length === 0) {
-                    closeCuteModal();
-                    if (!isInitial) showCuteModal({ icon: '✨', title: 'แจ้งเตือน', message: 'ไม่พบรายการข้อมูลใหม่จาก Google Sheets' });
-                    return;
-                }
-
-                const oldItemsMap = new Map();
-                oldItemsSnapshot.forEach(item => { if (item.id) oldItemsMap.set(String(item.id).trim(), item); });
-                const formattedData = rawData.map(item => {
-                    const itemId = item.id ? String(item.id).trim() : "";
-                    const existingItem = oldItemsMap.get(itemId);
-                    return {
-                        id: itemId,
-                        name: item.name || "",
-                        category: item.category || "ทั่วไป",
-                        unit: item.unit || "หน่วย",
-                        count_type: item.count_type ? String(item.count_type).trim().toLowerCase() : 'both',
-                        tare: parseFloat(item.tare) || 0,
-                        yst: existingItem ? existingItem.yst : { full: parseFloat(item.yst?.full) || 0, frac1: parseFloat(item.yst?.frac1) || 0, frac2: parseFloat(item.yst?.frac2) || 0 },
-                        today: existingItem ? existingItem.today : { full: "", frac1: "", frac2: "" }
-                    };
-                });
-                await set(ref(db, `stock_${modeAtStart}`), formattedData);
-                if (currentMode === modeAtStart) clearUndoHistory();
-                closeCuteModal();
-                if (!isInitial) showCuteModal({ icon: '🎉', title: 'สำเร็จ', message: 'ดึงข้อมูลจาก Google Sheets และบันทึกลงระบบเรียบร้อยแล้วครับ' });
-            } catch (err) {
-                console.error('Sheets sync error:', err);
-                closeCuteModal();
-                if (!isInitial) {
-                    showCuteModal({ icon: '❌', title: 'เชื่อมต่อไม่สำเร็จ', message: 'ไม่สามารถดึงหรือบันทึกข้อมูลจาก Sheets ได้ กรุณาตรวจสอบอินเทอร์เน็ตและสิทธิ์ Apps Script' });
-                }
-                if (currentMode === modeAtStart) renderList();
-            }
+        window.fetchFromSheetsAndSyncFirebase = async function(isInitial=false) {
+            if(isInitial||pendingSaves||countingBusy())return;
+            const modeAtStart=currentMode;countMaintenanceBusy=true;
+            showLoadingModal({title:'กำลังซิงค์ข้อมูล',message:'อัปเดตชื่อสินค้าโดยรักษาผลนับกลางล่าสุด',type:'sync'});
+            const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),30000);
+            try{
+                const response=await fetch(`${WEB_APP_URL}?mode=${modeAtStart}`,{cache:'no-store',signal:controller.signal});
+                if(!response.ok)throw Error('Sheets HTTP '+response.status);
+                const catalog=await response.json();
+                const before=(await get(ref(db,`stock_${modeAtStart}`))).val();
+                saveCountBackup(modeAtStart,before,'before_catalog_sync');
+                const result=await runTransaction(ref(db,`stock_${modeAtStart}`),raw=>OJCountState.mergeCatalog(catalog,raw),{applyLocally:false});
+                if(!result.committed)throw Error('ไม่บันทึกรายการสินค้า');
+                clearUndoHistory();showCuteModal({icon:'🎉',title:'สำเร็จ',message:'อัปเดตรายการสินค้าแล้ว โดยรักษาผลนับเดิม'});
+            }catch(e){showCuteModal({icon:'❌',title:'ซิงก์ไม่สำเร็จ',message:String(e.message||e)})}
+            finally{clearTimeout(timer);countMaintenanceBusy=false}
         };
 
         window.switchMode = function(mode) {
+            if(pendingSaves||countingBusy()){showSaveError('กรุณารอการบันทึกหรือเช็กสถานะให้เสร็จก่อนเปลี่ยนโหมด');return;}
             if (mode === currentMode) return;
             if (modeSwitchTimer) clearTimeout(modeSwitchTimer);
 
@@ -1397,6 +1393,8 @@
         };
 
         window.updateFirebaseInput = async function(idx, field, val) {
+            if(countingBusy())return false;
+            if(!['full','frac1','frac2'].includes(field)||val!==''&&(!Number.isFinite(Number(val))||Number(val)<0)){showSaveError('ใส่ตัวเลขตั้งแต่ 0 ขึ้นไป');return false;}
             const item = stockItems[idx];
             if (!item || !item.today) return false;
             const modeAtStart = currentMode;
@@ -1412,7 +1410,8 @@
             beginSave();
             try {
                 const updates = {};
-                updates[`stock_${modeAtStart}/${idx}/today/${field}`] = val;
+                saveCountBackup(modeAtStart,stockItems,'before_field_save');
+                updates[`stock_${modeAtStart}/${databaseKey(idx)}/today/${field}`] = val;
                 await update(ref(db), updates);
                 pushFieldUndoAction({ mode: modeAtStart, idx, itemId: itemIdAtStart, itemName: item.name || '', field, previousValue, nextValue: val });
                 finishSave(true);
@@ -1491,6 +1490,7 @@
         }
 
         window.setAsYst = async function(idx) {
+            if(countingBusy())return;
             const item = stockItems[idx];
             if (!item) return;
             const modeAtStart = currentMode;
@@ -1505,7 +1505,7 @@
             beginSave();
             try {
                 const updates = {};
-                updates[`stock_${modeAtStart}/${idx}/today`] = nextToday;
+                updates[`stock_${modeAtStart}/${databaseKey(idx)}/today`] = nextToday;
                 await update(ref(db), updates);
                 pushBulkFieldUndoActions(modeAtStart, idx, item, previousToday, nextToday);
                 finishSave(true);
@@ -1521,6 +1521,7 @@
         };
 
         window.setAsZero = async function(idx) {
+            if(countingBusy())return;
             const item = stockItems[idx];
             if (!item) return;
             const modeAtStart = currentMode;
@@ -1532,7 +1533,7 @@
             beginSave();
             try {
                 const updates = {};
-                updates[`stock_${modeAtStart}/${idx}/today`] = nextToday;
+                updates[`stock_${modeAtStart}/${databaseKey(idx)}/today`] = nextToday;
                 await update(ref(db), updates);
                 pushBulkFieldUndoActions(modeAtStart, idx, item, previousToday, nextToday);
                 finishSave(true);
@@ -1548,78 +1549,42 @@
         };
 
         window.startNewDay = function() {
-            showCuteModal({
-                icon: '🌅', title: 'เริ่มรอบวันใหม่', message: 'ต้องการล้างข้อมูลเพื่อเริ่มรอบวันใหม่ใช่ไหมครับ?', showCancel: true,
-                onConfirm: async () => {
-                    const modeAtStart = currentMode;
-                    const newItems = stockItems.map(item => ({
-                        ...item,
-                        yst: {
-                            full: item.today?.full !== "" && item.today?.full !== null ? item.today.full : (item.yst?.full || 0),
-                            frac1: item.today?.frac1 !== "" && item.today?.frac1 !== null ? item.today.frac1 : (item.yst?.frac1 || item.yst?.frac || 0),
-                            frac2: item.today?.frac2 !== "" && item.today?.frac2 !== null ? item.today.frac2 : (item.yst?.frac2 || 0)
-                        },
-                        today: { full: "", frac1: "", frac2: "" }
-                    }));
-                    showLoadingModal({ title: 'กำลังเริ่มรอบใหม่', message: 'กำลังบันทึกยอดเมื่อวานและล้างช่องนับวันนี้...', type: 'newday' });
-                    beginSave();
-                    try {
-                        await set(ref(db, `stock_${modeAtStart}`), newItems);
-                        clearUndoHistory();
-                        finishSave(true);
-                        localStorage.removeItem(sessionStorageKey());
-                        if (currentMode === modeAtStart) {
-                            stockItems = newItems;
-                            animateNextListRender = true;
-                            renderCategories();
-                            renderList();
-                        }
-                        showCuteModal({ icon: '✨', title: 'สำเร็จ', message: 'เริ่มรอบวันใหม่เรียบร้อยแล้วครับ' });
-                    } catch (error) {
-                        console.error('Start new day error:', error);
-                        finishSave(false);
-                        showCuteModal({ icon: '❌', title: 'เริ่มรอบใหม่ไม่สำเร็จ', message: 'ข้อมูลเดิมยังไม่ถูกล้าง กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองอีกครั้ง' });
-                    }
-                }
-            });
+            if(pendingSaves||countingBusy())return;
+            const modeAtStart=currentMode;
+            if(countSubmit.pending(modeAtStart)){showCuteModal({icon:'❌',title:'ยังมีผลส่งรอตรวจสอบ',message:'เช็กสถานะและสำรองผลนับก่อนเริ่มรอบใหม่'});return;}
+            showCuteModal({icon:'🌅',title:'เริ่มรอบวันใหม่',message:'ย้ายยอดวันนี้ไปเมื่อวานและล้างช่องนับวันนี้หรือไม่? ระบบจะเก็บสำเนาก่อน',showCancel:true,onConfirm:async()=>{
+                if(pendingSaves||countingBusy()||currentMode!==modeAtStart)return;
+                countMaintenanceBusy=true;beginSave();
+                try{
+                    const before=(await get(ref(db,`stock_${modeAtStart}`))).val();
+                    if(!before)throw Error('อ่านผลนับเดิมไม่ได้');
+                    saveCountBackup(modeAtStart,before,'before_new_round');
+                    // Compare with the backed-up snapshot; abort if another edit arrived.
+                    const result=await runTransaction(ref(db,`stock_${modeAtStart}`),raw=>JSON.stringify(raw)===JSON.stringify(before)?OJCountState.newRound(raw):undefined,{applyLocally:false});
+                    if(!result.committed)throw Error('ผลนับเปลี่ยนระหว่างสำรอง กรุณาตรวจใหม่');
+                    clearUndoHistory();finishSave(true);localStorage.removeItem(sessionStorageKey());localStorage.removeItem('oh_stock_last_sheet_receipt_'+modeAtStart);
+                    showCuteModal({icon:'✨',title:'สำเร็จ',message:'เริ่มรอบใหม่แล้ว พร้อมสำเนาก่อนเปลี่ยนรอบ'});
+                }catch(e){finishSave(false);showCuteModal({icon:'❌',title:'ยังไม่เริ่มรอบใหม่',message:String(e.message||e)})}
+                finally{countMaintenanceBusy=false}
+            }});
         };
 
-        window.submitToGoogleSheets = async function() {
-            showCuteModal({
-                icon: '📤', title: 'ยืนยันการส่งข้อมูล', message: 'ต้องการส่งผลการนับทั้งหมดเข้า Google Sheets ใช่ไหมครับ?', showCancel: true,
-                onConfirm: async () => {
-                    const modeAtStart = currentMode;
-                    showLoadingModal({ title: 'กำลังส่งข้อมูล', message: 'กำลังบันทึกข้อมูลลง Google Sheets...', type: 'submit' });
-                    try {
-                        const processedItems = stockItems.map(item => {
-                            const f1 = parseFloat(item.today?.frac1) || 0;
-                            const f2 = parseFloat(item.today?.frac2) || 0;
-                            const finalF2 = Math.max(0, f2 - (item.tare || 0));
-                            return {
-                                ...item,
-                                today: { ...item.today, frac_normal: f1, frac_tare_net: finalF2, frac: f1 + finalF2 }
-                            };
-                        });
-
-                        const response = await fetch(WEB_APP_URL, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                            body: JSON.stringify({ mode: modeAtStart, items: processedItems })
-                        });
-                        if (!response.ok) throw new Error(`Sheets HTTP ${response.status}`);
-                        const responseText = await response.text();
-                        if (responseText.trim()) {
-                            let result = null;
-                            try { result = JSON.parse(responseText); } catch (_) { /* Non-JSON success body is allowed. */ }
-                            if (result && result.success === false) throw new Error(result.message || 'Apps Script returned success=false');
-                        }
-                        showCuteModal({ icon: '🎉', title: 'สำเร็จ', message: 'Google Sheets ตอบรับการส่งข้อมูลเรียบร้อยแล้วครับ' });
-                    } catch (error) {
-                        console.error('Submit to Sheets error:', error);
-                        showCuteModal({ icon: '❌', title: 'ส่งข้อมูลไม่สำเร็จ', message: 'Google Sheets ยังไม่ยืนยันการบันทึก กรุณาลองอีกครั้งหรือใช้ฟังก์ชันสำรองข้อมูล' });
-                    }
-                }
-            });
+        async function runSheetSubmission() {
+            if(pendingSaves||countingBusy()){showSaveError('รอ Firebase บันทึกให้เสร็จก่อนส่ง');return;}
+            const mode=currentMode;
+            if(!firebaseLoadedModes.has(mode)){showSaveError('ยังโหลดผลนับจาก Firebase ไม่ครบ');return;}
+            showLoadingModal({title:'ตรวจการส่งผลนับ',message:'เก็บสำเนาและตรวจยืนยันจาก Apps Script',type:'submit'});
+            try{
+                const snapshot=JSON.parse(JSON.stringify(stockItems));
+                saveCountBackup(mode,snapshot,'before_sheet_submit');
+                const outcome=await countSubmit.submit(mode,snapshot);
+                if(outcome.status==='confirmed')showCuteModal({icon:'🎉',title:'ยืนยันการส่งแล้ว',message:`Google Sheets ยืนยัน ${outcome.journal.items.length} รายการ · ID ${outcome.journal.submissionId} หากแก้ผลนับหลังส่ง ให้ตรวจชุดปัจจุบันก่อนส่งใหม่`});
+                else showCuteModal({icon:'❌',title:outcome.status==='offline'?'ยังไม่ได้ส่ง: ไม่มีอินเทอร์เน็ต':'ยังยืนยันผลไม่ได้',message:`มีสำเนาผลนับและ ID ${outcome.journal.submissionId} อยู่ในเครื่อง กดส่งอีกครั้งจะตรวจสถานะเดิมก่อนโดยไม่ยิง POST ซ้ำ กดตกลงเพื่อเปิดสำรองข้อมูล`,onConfirm:()=>openBackupModal()});
+            }catch(e){showCuteModal({icon:'❌',title:'หยุดส่งเพื่อรักษาผลนับ',message:String(e.message||e)})}
+        }
+        window.submitToGoogleSheets=function(){if(pendingSaves||countingBusy()){showSaveError('รอการบันทึกให้เสร็จก่อน');return;}showCuteModal({icon:'📤',title:'ยืนยันการส่งข้อมูล',message:'ส่งผลนับโหมดปัจจุบันหรือเช็กสถานะชุดเดิม? ช่องว่างยังส่งเป็น 0 ตามระบบเดิม กรุณาตรวจความครบก่อน',showCancel:true,onConfirm:runSheetSubmission})};
+        window.downloadCountRecovery=function(){
+            try{const data={version:1,exportedAt:new Date().toISOString(),currentMode,visibleItems:JSON.parse(JSON.stringify(stockItems)),dailyBackup:JSON.parse(localStorage.getItem('oh_stock_count_backup_daily')||'null'),weeklyBackup:JSON.parse(localStorage.getItem('oh_stock_count_backup_weekly')||'null'),pendingDaily:countSubmit.pending('daily'),pendingWeekly:countSubmit.pending('weekly'),protectedBackups:Object.fromEntries(Array.from({length:localStorage.length},(_,i)=>localStorage.key(i)).filter(k=>k&&k.startsWith('oh_stock_recovery_')).map(k=>[k,JSON.parse(localStorage.getItem(k))]))};const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='OJ016-recovery-'+new Date().toISOString().replace(/[:.]/g,'-')+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}catch(e){showSaveError('สร้างไฟล์สำรองไม่ได้: '+e.message)}
         };
 
         window.toggleMenu = function() {
