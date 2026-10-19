@@ -1584,68 +1584,91 @@
             });
         };
 
-        // Submission is deliberately not retried automatically: a lost response can follow a successful write.
+        // A stored submission ID makes a lost POST response checkable without replaying the write.
         let sheetsSubmissionBusy = false;
-        window.submitToGoogleSheets = async function() {
+        window.submitToGoogleSheets = function() {
             if (sheetsSubmissionBusy) return;
             showCuteModal({
-                icon: '📤', title: 'ยืนยันการส่งข้อมูล',
-                message: 'ส่งผลการนับเข้า Google Sheets หรือไม่? หากคำตอบจากระบบหาย โปรดตรวจชีตก่อนส่งซ้ำ',
-                showCancel: true,
+                icon: '📤', title: 'ยืนยันการส่งข้อมูล', showCancel: true,
+                message: 'ส่งผลการนับไป Google Sheets หรือไม่? ระบบจะเก็บสำเนาและตรวจการยืนยันการบันทึก',
                 onConfirm: async () => {
                     if (sheetsSubmissionBusy) return;
                     sheetsSubmissionBusy = true;
                     const modeAtStart = currentMode;
-                    const snapshot = stockItems.map(item => ({
-                        ...item,
-                        today: { ...(item.today || {}) },
-                        yst: { ...(item.yst || {}) }
-                    }));
-                    const processedItems = snapshot.map(item => {
+                    const processedItems = stockItems.map(item => {
                         const f1 = parseFloat(item.today?.frac1) || 0;
                         const f2 = parseFloat(item.today?.frac2) || 0;
-                        const finalF2 = Math.max(0, f2 - (item.tare || 0));
-                        return { ...item, today: { ...item.today, frac_normal: f1, frac_tare_net: finalF2, frac: f1 + finalF2 } };
+                        return { ...item, today: { ...item.today, frac_normal: f1,
+                            frac_tare_net: Math.max(0, f2 - (item.tare || 0)),
+                            frac: f1 + Math.max(0, f2 - (item.tare || 0)) } };
                     });
-                    // Preserve a copy before attempting the network request. Never overwrite the previous failed snapshot.
-                    const backupKey = 'oh_stock_pending_sheet_submit_' + modeAtStart;
+                    const savedKey = 'oh_stock_pending_sheet_submit_' + modeAtStart;
+                    let journal;
                     try {
-                        if (!localStorage.getItem(backupKey)) localStorage.setItem(backupKey, JSON.stringify({
-                            savedAt: new Date().toISOString(), mode: modeAtStart, items: processedItems
-                        }));
-                    } catch (backupError) {
-                        console.warn('Could not store Sheets submission backup', backupError);
-                    }
-                    showLoadingModal({ title: 'กำลังส่งข้อมูล', message: 'กำลังรอ Google Sheets ยืนยันการบันทึก...', type: 'submit' });
+                        const existing = JSON.parse(localStorage.getItem(savedKey) || 'null');
+                        if (existing && JSON.stringify(existing.items) !== JSON.stringify(processedItems)) {
+                            sheetsSubmissionBusy = false;
+                            showCuteModal({ icon:'❌', title:'มีรายการส่งค้างตรวจสอบ',
+                                message:'พบผลนับชุดเก่าที่เคยส่งแต่ยังไม่ได้ยืนยัน โปรดตรวจ Google Sheets และสำรองข้อมูลก่อนส่งผลนับชุดใหม่' });
+                            return;
+                        }
+                        if (existing) journal = existing;
+                        else {
+                            const random = (typeof crypto !== 'undefined' && crypto.randomUUID) ?
+                                crypto.randomUUID().replace(/-/g,'') :
+                                Date.now().toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+                            journal = { submissionId:'oj016-' + random, mode:modeAtStart,
+                                savedAt:new Date().toISOString(), items:processedItems };
+                            localStorage.setItem(savedKey, JSON.stringify(journal));
+                        }
+                    } catch (e) {
+                        sheetsSubmissionBusy = false;
+                        showCuteModal({ icon:'❌', title:'สำรองผลนับไม่ได้',
+                            message:'ไม่สามารถสำรองผลนับก่อนส่งได้ กรุณาใช้เมนูสำรองข้อมูล (แบบคอลัมน์) ก่อน',
+                            onConfirm: () => openBackupModal() });
+                        return;
+                    } finally { /* busy flag is released by the outer finally after network path */ }
+                    showLoadingModal({ title:'กำลังส่งข้อมูล', message:'กำลังรอ Google Sheets ยืนยัน...', type:'submit' });
                     try {
                         const controller = new AbortController();
-                        const timeout = setTimeout(() => controller.abort(), 30000);
+                        const timer = setTimeout(()=>controller.abort(),30000);
                         let response;
-                        try {
-                            response = await fetch(WEB_APP_URL, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                                body: JSON.stringify({ mode: modeAtStart, items: processedItems }),
-                                signal: controller.signal
-                            });
-                        } finally { clearTimeout(timeout); }
-                        if (!response.ok) throw new Error('Sheets HTTP ' + response.status);
-                        const responseText = await response.text();
-                        let result;
-                        try { result = JSON.parse(responseText); }
-                        catch (_) { throw new Error('Apps Script did not return valid JSON confirmation'); }
-                        if (!result || (result.success !== true && result.status !== 'success')) {
-                            throw new Error(result?.message || 'Apps Script did not confirm success');
+                        try { response = await fetch(WEB_APP_URL, {
+                            method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+                            body:JSON.stringify({mode:modeAtStart,items:processedItems,submissionId:journal.submissionId}),
+                            signal:controller.signal
+                        }); } finally { clearTimeout(timer); }
+                        if (!response.ok) throw new Error('HTTP '+response.status);
+                        const result = await response.json();
+                        if (result?.status !== 'success' || result?.submissionId !== journal.submissionId ||
+                            result?.mode !== modeAtStart || Number(result?.count) !== processedItems.length) {
+                            throw new Error('No matching submission confirmation');
                         }
-                        try { localStorage.removeItem(backupKey); } catch (_) {}
-                        showCuteModal({ icon: '🎉', title: 'ส่งข้อมูลสำเร็จ',
-                            message: 'Google Sheets ยืนยันการบันทึกแล้ว กรุณาตรวจยอดในชีตให้ตรงกับผลนับ' });
+                        localStorage.removeItem(savedKey);
+                        showCuteModal({ icon:'🎉', title:'ส่งข้อมูลสำเร็จ',
+                            message:'Google Sheets ยืนยันรับผลนับ '+processedItems.length+' รายการแล้ว' });
                     } catch (error) {
-                        console.error('Submit to Sheets failed or unconfirmed:', error);
-                        showCuteModal({ icon: '❌', title: 'ยังยืนยันการส่งไม่ได้',
-                            message: 'ผลนับยังอยู่ในแอป อย่าเพิ่งส่งซ้ำ เพราะชีตอาจบันทึกแล้ว กรุณาตรวจข้อมูลในชีตก่อน กดตกลงเพื่อเปิดหน้าสำรองข้อมูล',
-                            onConfirm: () => openBackupModal() });
-                    } finally { sheetsSubmissionBusy = false; }
+                        console.error('Count submit uncertain',error);
+                        let verified=false;
+                        try {
+                            const url=WEB_APP_URL+'?mode=countSubmissionStatus&submissionId='+
+                                encodeURIComponent(journal.submissionId)+'&t='+Date.now();
+                            const check=await fetch(url,{cache:'no-store'});
+                            const result=await check.json();
+                            verified=check.ok && result.status==='success' && result.confirmed===true &&
+                                result.submissionId===journal.submissionId &&
+                                result.submittedMode===modeAtStart && Number(result.count)===processedItems.length;
+                        } catch(checkError) { console.warn('Count status check unavailable',checkError); }
+                        if (verified) {
+                            localStorage.removeItem(savedKey);
+                            showCuteModal({ icon:'🎉', title:'ยืนยันจาก Google Sheets แล้ว',
+                                message:'การส่งเสร็จสมบูรณ์ '+processedItems.length+' รายการ (ตรวจสอบสถานะย้อนหลังสำเร็จ)' });
+                        } else {
+                            showCuteModal({ icon:'❌', title:'ยังยืนยันการส่งไม่ได้',
+                                message:'ผลนับยังอยู่ในระบบและมีสำเนาในเครื่อง อย่าเพิ่งส่งซ้ำจนกว่าจะตรวจชีต กดตกลงเพื่อเปิดสำรองข้อมูล',
+                                onConfirm:()=>openBackupModal() });
+                        }
+                    } finally { sheetsSubmissionBusy=false; }
                 }
             });
         };
