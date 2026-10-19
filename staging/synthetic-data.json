@@ -1,0 +1,4 @@
+{
+  "stock_daily": [{"id":"TEST-DAILY-A","name":"สินค้าสังเคราะห์ A","category":"TEST ONLY","unit":"g","count_type":"frac2","tare":75,"today":{"full":"2","frac1":"10.5","frac2":"208"},"yst":{"full":"1","frac1":"0","frac2":"150"}}],
+  "stock_weekly": [{"id":"TEST-WEEKLY-A","name":"สินค้าสังเคราะห์ Weekly","category":"TEST ONLY","unit":"ชิ้น","count_type":"both","tare":0,"today":{"full":"3","frac1":"0","frac2":""},"yst":{"full":"2","frac1":"0","frac2":""}}]
+}
