@@ -2,6 +2,8 @@
 
 **RELEASE: BLOCKED — ยังไม่ตรวจรับการส่งจริง ยังไม่ Merge/Deploy**
 
+อัปเดต 19 ตุลาคม 2026: เจ้าของร้านรายงานว่าส่งข้อมูลจริงเข้า Google Sheets สำเร็จและวันที่บันทึกตรงกัน รับเป็น OWNER_REPORTED หลักฐานเบื้องต้นเท่านั้น ยังไม่ใช่ Browser QA ของ Candidate R2 และไม่มีการนำผลนับจริงไปส่งซ้ำโดยผู้ช่วย.
+
 ตรวจวันที่ 19 ตุลาคม 2026 (Asia/Bangkok). Repository `sknnnnnnn/OH-stock-016`.
 ฐาน main: `6c1d62bb1b992724e38b5115dc58cf2985aee80f`.
 ฐาน PR #1 / branch `fix/sheets-submit-confirmation-r1`: `3959a0d3dcd1de485ed3812ba5c6054b0bf259f5`.
