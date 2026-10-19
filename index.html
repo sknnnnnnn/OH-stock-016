@@ -1612,7 +1612,7 @@
                                 message:'พบผลนับชุดเก่าที่เคยส่งแต่ยังไม่ได้ยืนยัน โปรดตรวจ Google Sheets และสำรองข้อมูลก่อนส่งผลนับชุดใหม่' });
                             return;
                         }
-                        if (existing) journal = existing;
+                        if (existing && /^oj016-[A-Za-z0-9_-]{12,90}$/.test(String(existing.submissionId||''))) journal = existing;
                         else {
                             const random = (typeof crypto !== 'undefined' && crypto.randomUUID) ?
                                 crypto.randomUUID().replace(/-/g,'') :
