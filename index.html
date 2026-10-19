@@ -422,7 +422,7 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getDatabase, ref, onValue, set, update } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+        import { getDatabase, ref, onValue, set, update, get, runTransaction } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyDRQW8NeX4P4VjDLFrjZXx8S8XOyA47I58",
@@ -1123,7 +1123,7 @@
 
         window.fetchFromSheetsAndSyncFirebase = async function(isInitial = false) {
             const modeAtStart = currentMode;
-            const oldItemsSnapshot = stockItems.map(item => ({ ...item, today: { ...(item.today || {}) }, yst: { ...(item.yst || {}) } }));
+            // R1: Sheets owns catalog metadata, not live count values.
             showLoadingModal({ title: 'กำลังซิงค์ข้อมูล', message: 'กำลังดึงรายการสินค้าจาก Google Sheets...', type: 'sync' });
             renderStockSkeleton();
             try {
@@ -1135,24 +1135,44 @@
                     if (!isInitial) showCuteModal({ icon: '✨', title: 'แจ้งเตือน', message: 'ไม่พบรายการข้อมูลใหม่จาก Google Sheets' });
                     return;
                 }
-
-                const oldItemsMap = new Map();
-                oldItemsSnapshot.forEach(item => { if (item.id) oldItemsMap.set(String(item.id).trim(), item); });
-                const formattedData = rawData.map(item => {
-                    const itemId = item.id ? String(item.id).trim() : "";
-                    const existingItem = oldItemsMap.get(itemId);
-                    return {
-                        id: itemId,
-                        name: item.name || "",
-                        category: item.category || "ทั่วไป",
-                        unit: item.unit || "หน่วย",
+                const ids = rawData.map(item => String(item.id ?? '').trim());
+                if (ids.some(id => !id) || new Set(ids).size !== ids.length) {
+                    throw new Error('Sheets มีรหัสสินค้าว่างหรือซ้ำกัน');
+                }
+                const stockPath = ref(db, `stock_${modeAtStart}`);
+                const snapshot = await get(stockPath);
+                const current = snapshot.val();
+                if (current === null) {
+                    const initial = rawData.map(item => ({
+                        id: String(item.id).trim(),
+                        name: item.name || '', category: item.category || 'ทั่วไป',
+                        unit: item.unit || 'หน่วย',
                         count_type: item.count_type ? String(item.count_type).trim().toLowerCase() : 'both',
                         tare: parseFloat(item.tare) || 0,
-                        yst: existingItem ? existingItem.yst : { full: parseFloat(item.yst?.full) || 0, frac1: parseFloat(item.yst?.frac1) || 0, frac2: parseFloat(item.yst?.frac2) || 0 },
-                        today: existingItem ? existingItem.today : { full: "", frac1: "", frac2: "" }
-                    };
-                });
-                await set(ref(db, `stock_${modeAtStart}`), formattedData);
+                        yst: { full: parseFloat(item.yst?.full) || 0, frac1: parseFloat(item.yst?.frac1) || 0, frac2: parseFloat(item.yst?.frac2) || 0 },
+                        today: { full: '', frac1: '', frac2: '' }
+                    }));
+                    const result = await runTransaction(stockPath, value => value === null ? initial : undefined, { applyLocally: false });
+                    if (!result.committed) throw new Error('มีเครื่องอื่นสร้างรายการแล้ว กรุณาซิงค์อีกครั้ง');
+                } else {
+                    if (!Array.isArray(current) || current.length !== ids.length ||
+                        current.some((item, index) => String(item?.id ?? '').trim() !== ids[index])) {
+                        throw new Error('รายการหรือลำดับสินค้าใน Sheets เปลี่ยนไป จึงหยุดซิงค์เพื่อป้องกันยอดนับสลับ');
+                    }
+                    const changes = {};
+                    rawData.forEach((item, index) => {
+                        const metadata = {
+                            name: item.name || '', category: item.category || 'ทั่วไป',
+                            unit: item.unit || 'หน่วย',
+                            count_type: item.count_type ? String(item.count_type).trim().toLowerCase() : 'both',
+                            tare: parseFloat(item.tare) || 0
+                        };
+                        for (const [field, value] of Object.entries(metadata)) {
+                            if (current[index][field] !== value) changes[`${index}/${field}`] = value;
+                        }
+                    });
+                    if (Object.keys(changes).length) await update(stockPath, changes);
+                }
                 if (currentMode === modeAtStart) clearUndoHistory();
                 closeCuteModal();
                 if (!isInitial) showCuteModal({ icon: '🎉', title: 'สำเร็จ', message: 'ดึงข้อมูลจาก Google Sheets และบันทึกลงระบบเรียบร้อยแล้วครับ' });
@@ -1160,7 +1180,7 @@
                 console.error('Sheets sync error:', err);
                 closeCuteModal();
                 if (!isInitial) {
-                    showCuteModal({ icon: '❌', title: 'เชื่อมต่อไม่สำเร็จ', message: 'ไม่สามารถดึงหรือบันทึกข้อมูลจาก Sheets ได้ กรุณาตรวจสอบอินเทอร์เน็ตและสิทธิ์ Apps Script' });
+                    showCuteModal({ icon: '❌', title: 'เชื่อมต่อไม่สำเร็จ', message: 'ซิงค์ไม่สำเร็จ: ' + String(err.message || err) });
                 }
                 if (currentMode === modeAtStart) renderList();
             }
