@@ -1547,10 +1547,14 @@
             }
         };
 
+        let newDayResetInFlight = false;
         window.startNewDay = function() {
+            if (newDayResetInFlight) return;
             showCuteModal({
                 icon: '🌅', title: 'เริ่มรอบวันใหม่', message: 'ต้องการล้างข้อมูลเพื่อเริ่มรอบวันใหม่ใช่ไหมครับ?', showCancel: true,
                 onConfirm: async () => {
+                    if (newDayResetInFlight) return;
+                    newDayResetInFlight = true;
                     const modeAtStart = currentMode;
                     const newItems = stockItems.map(item => ({
                         ...item,
@@ -1578,16 +1582,25 @@
                     } catch (error) {
                         console.error('Start new day error:', error);
                         finishSave(false);
-                        showCuteModal({ icon: '❌', title: 'เริ่มรอบใหม่ไม่สำเร็จ', message: 'ข้อมูลเดิมยังไม่ถูกล้าง กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองอีกครั้ง' });
+                        showCuteModal({ icon: '❌', title: 'เริ่มรอบใหม่ยังไม่ยืนยัน', message: 'โปรดตรวจข้อมูลในระบบก่อนลองอีกครั้ง เพื่อป้องกันการเริ่มรอบซ้ำ' });
+                    } finally {
+                        newDayResetInFlight = false;
                     }
                 }
             });
         };
 
+        let sheetsSubmissionInFlight = false;
         window.submitToGoogleSheets = async function() {
+            if (sheetsSubmissionInFlight) {
+                showCuteModal({ icon: '⏳', title: 'กำลังส่งข้อมูล', message: 'โปรดรอการส่งครั้งก่อนให้เสร็จ อย่ากดส่งซ้ำ' });
+                return;
+            }
             showCuteModal({
                 icon: '📤', title: 'ยืนยันการส่งข้อมูล', message: 'ต้องการส่งผลการนับทั้งหมดเข้า Google Sheets ใช่ไหมครับ?', showCancel: true,
                 onConfirm: async () => {
+                    if (sheetsSubmissionInFlight) return;
+                    sheetsSubmissionInFlight = true;
                     const modeAtStart = currentMode;
                     showLoadingModal({ title: 'กำลังส่งข้อมูล', message: 'กำลังบันทึกข้อมูลลง Google Sheets...', type: 'submit' });
                     try {
@@ -1616,7 +1629,9 @@
                         showCuteModal({ icon: '🎉', title: 'สำเร็จ', message: 'Google Sheets ตอบรับการส่งข้อมูลเรียบร้อยแล้วครับ' });
                     } catch (error) {
                         console.error('Submit to Sheets error:', error);
-                        showCuteModal({ icon: '❌', title: 'ส่งข้อมูลไม่สำเร็จ', message: 'Google Sheets ยังไม่ยืนยันการบันทึก กรุณาลองอีกครั้งหรือใช้ฟังก์ชันสำรองข้อมูล' });
+                        showCuteModal({ icon: '❌', title: 'ยังยืนยันผลการส่งไม่ได้', message: 'ผลการส่งอาจยังไม่ชัดเจน โปรดตรวจ Google Sheets ก่อนกดส่งใหม่ เพื่อป้องกันการส่งซ้ำ' });
+                    } finally {
+                        sheetsSubmissionInFlight = false;
                     }
                 }
             });
