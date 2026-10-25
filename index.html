@@ -423,7 +423,7 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getDatabase, ref, onValue, set, update } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+        import { getDatabase, ref, onValue, set, update, runTransaction } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyDRQW8NeX4P4VjDLFrjZXx8S8XOyA47I58",
@@ -1137,23 +1137,35 @@
                     return;
                 }
 
-                const oldItemsMap = new Map();
-                oldItemsSnapshot.forEach(item => { if (item.id) oldItemsMap.set(String(item.id).trim(), item); });
-                const formattedData = rawData.map(item => {
-                    const itemId = item.id ? String(item.id).trim() : "";
-                    const existingItem = oldItemsMap.get(itemId);
-                    return {
-                        id: itemId,
-                        name: item.name || "",
-                        category: item.category || "ทั่วไป",
-                        unit: item.unit || "หน่วย",
-                        count_type: item.count_type ? String(item.count_type).trim().toLowerCase() : 'both',
-                        tare: parseFloat(item.tare) || 0,
-                        yst: existingItem ? existingItem.yst : { full: parseFloat(item.yst?.full) || 0, frac1: parseFloat(item.yst?.frac1) || 0, frac2: parseFloat(item.yst?.frac2) || 0 },
-                        today: existingItem ? existingItem.today : { full: "", frac1: "", frac2: "" }
-                    };
-                });
-                await set(ref(db, `stock_${modeAtStart}`), formattedData);
+                // Resolve against the CURRENT Firebase values inside a transaction.
+                // Never use the stale browser snapshot to replace today's counts.
+                const stockRoot=ref(db,"stock_"+modeAtStart);
+                const result=await runTransaction(stockRoot,current=>{
+                    const existing=Array.isArray(current)?current:(current&&typeof current==="object"?Object.values(current):[]);
+                    const oldById=new Map(existing.filter(x=>x&&x.id).map(x=>[String(x.id).trim(),x]));
+                    const seen=new Set();
+                    const merged=rawData.map(item=>{
+                        const id=String(item?.id??"").trim();
+                        if(!id||seen.has(id))return null;
+                        seen.add(id);
+                        const prior=oldById.get(id);
+                        return {
+                            ...(prior||{}),
+                            id,
+                            name:item.name||"",
+                            category:item.category||"ทั่วไป",
+                            unit:item.unit||"หน่วย",
+                            count_type:item.count_type?String(item.count_type).trim().toLowerCase():"both",
+                            tare:parseFloat(item.tare)||0,
+                            yst:prior?.yst??{full:parseFloat(item.yst?.full)||0,frac1:parseFloat(item.yst?.frac1)||0,frac2:parseFloat(item.yst?.frac2)||0},
+                            today:prior?.today??{full:"",frac1:"",frac2:""}
+                        };
+                    }).filter(Boolean);
+                    // Preserve products removed from the Sheet until separately reviewed.
+                    for(const item of existing)if(item&&item.id&&!seen.has(String(item.id).trim()))merged.push(item);
+                    return merged;
+                },{applyLocally:false});
+                if(!result.committed)throw new Error("รายการสินค้าไม่ได้รับการยืนยันจาก Firebase");
                 if (currentMode === modeAtStart) clearUndoHistory();
                 closeCuteModal();
                 if (!isInitial) showCuteModal({ icon: '🎉', title: 'สำเร็จ', message: 'ดึงข้อมูลจาก Google Sheets และบันทึกลงระบบเรียบร้อยแล้วครับ' });
